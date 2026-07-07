@@ -88,12 +88,29 @@
   .slot.free:active{background:var(--accent-soft);}
   .slot.sel{background:var(--accent);border-color:var(--accent);color:#fff;}
   .slot.sel .s{color:#dbe8f2;}
-  .slot.taken{background:var(--full-bg);border-color:var(--taken);cursor:default;}
+  .slot.taken{background:var(--full-bg);border-color:var(--taken);cursor:pointer;}
   .slot.taken .t{color:var(--full);}
   .slot.taken .s{color:var(--full);}
-  .slot.mine{background:var(--free-bg);border-color:#bfe6d3;cursor:pointer;}
-  .slot.mine .t{color:var(--free);}
+  .slot .who{
+    font-size:10px;color:var(--ink-soft);margin-top:2px;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .slot.taken .who{color:#a24039;}
   .slot.disabled{opacity:.4;cursor:default;}
+
+  /* キャンセル用モーダル */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(20,30,45,.45);
+    display:flex;align-items:center;justify-content:center;padding:20px;z-index:60;
+  }
+  .modal{
+    background:#fff;border-radius:14px;padding:20px;max-width:340px;width:100%;
+    box-shadow:0 12px 44px rgba(0,0,0,.28);
+  }
+  .modal h3{margin:0 0 12px;font-size:16px;}
+  .modal-info{font-size:14px;background:var(--bg);border-radius:10px;padding:10px 12px;margin-bottom:14px;}
+  .modal-actions{display:flex;gap:10px;}
+  .modal-actions .btn{flex:1;}
 
   /* --- 予約フォーム --- */
   .field{margin-bottom:12px;}
@@ -173,9 +190,29 @@
       <label for="nameInput">お名前</label>
       <input id="nameInput" type="text" placeholder="山田太郎" autocomplete="name">
     </div>
+    <div class="field">
+      <label for="passInput">キャンセル用パスワード</label>
+      <input id="passInput" type="password" placeholder="キャンセル時に使う合言葉" autocomplete="off">
+    </div>
     <button class="btn" id="reserveBtn">予約する</button>
-    <div class="hint">※ 予約・キャンセルは名前だけで行えます。パスワードはありません。</div>
+    <div class="hint">※ キャンセルは予約枠をもう一度タップし、このパスワードを入力します。忘れないもの、かつ大事なパスワードの使い回しは避けてください。</div>
   </section>
+</div>
+
+<!-- キャンセル用モーダル -->
+<div id="cancelModal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>予約をキャンセル</h3>
+    <div class="modal-info" id="cancelInfo"></div>
+    <div class="field">
+      <label for="cancelPass">予約時のパスワード</label>
+      <input id="cancelPass" type="password" placeholder="パスワード" autocomplete="off">
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelModalClose">閉じる</button>
+      <button class="btn" id="cancelModalExec">キャンセルする</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -267,10 +304,9 @@ async function init(){
   $('prevM').onclick=()=>changeMonth(-1);
   $('nextM').onclick=()=>changeMonth(1);
   $('reserveBtn').onclick=doReserve;
-  // 名前を入れると自分の予約枠がキャンセル可能表示に変わる
-  $('nameInput').addEventListener('input', ()=>{
-    if(state.selectedDate && state.selectedMachine) renderSlots();
-  });
+  $('cancelModalClose').onclick=closeCancelModal;
+  $('cancelModalExec').onclick=execCancel;
+  $('cancelModal').addEventListener('click', e=>{ if(e.target.id==='cancelModal') closeCancelModal(); });
 }
 
 /* ---- 月の混み状況を読み込んで描画 ---- */
@@ -385,12 +421,11 @@ function renderSlots(){
     const r=taken[h];
     const sel = state.selectedHours.includes(h);
     if(r){
-      // 予約済み。自分の名前と一致すればキャンセル可能な「mine」表示
-      const myName=($('nameInput').value||'').trim();
-      const mine = myName && r.name===myName;
-      html+=`<div class="slot ${mine?'mine':'taken'}" data-hour="${h}" data-group="${r.groupId}" data-mine="${mine?1:0}">`+
+      // 予約済み。予約者名を表示。タップでキャンセル（パスワード確認）。
+      html+=`<div class="slot taken" data-hour="${h}" data-group="${r.groupId}">`+
             `<div class="t">${hourLabel(h)}</div>`+
-            `<div class="s">${mine?'自分の予約 ✕':'予約済'}</div></div>`;
+            `<div class="s">予約済</div>`+
+            `<div class="who">${escapeHtml(r.name||'')}</div></div>`;
     }else{
       html+=`<div class="slot free${sel?' sel':''}" data-hour="${h}">`+
             `<div class="t">${hourLabel(h)}</div>`+
@@ -398,14 +433,14 @@ function renderSlots(){
     }
   }
   html+='</div>';
-  html+=`<div class="hint">空き枠をタップで選択（連続${state.maxHours}枠まで）。自分の予約枠をタップするとキャンセルできます。</div>`;
+  html+=`<div class="hint">空き枠をタップで選択（連続${state.maxHours}枠まで）。予約済み枠をタップし、予約時のパスワードでキャンセルできます。</div>`;
   $('slotArea').innerHTML=html;
 
   $('slotArea').querySelectorAll('.slot.free').forEach(el=>{
     el.onclick=()=>toggleHour(Number(el.getAttribute('data-hour')));
   });
-  $('slotArea').querySelectorAll('.slot.mine').forEach(el=>{
-    el.onclick=()=>cancelReservation(el.getAttribute('data-group'));
+  $('slotArea').querySelectorAll('.slot.taken').forEach(el=>{
+    el.onclick=()=>openCancelModal(el.getAttribute('data-group'));
   });
 
   updateReserveSection();
@@ -456,7 +491,9 @@ function updateReserveSection(){
 /* ---- 予約実行 ---- */
 async function doReserve(){
   const name=($('nameInput').value||'').trim();
+  const pass=($('passInput').value||'');
   if(!name){ toast('お名前を入力してください', true); $('nameInput').focus(); return; }
+  if(!pass){ toast('キャンセル用パスワードを入力してください', true); $('passInput').focus(); return; }
   if(state.selectedHours.length===0){ toast('時間枠を選んでください', true); return; }
 
   const btn=$('reserveBtn');
@@ -467,9 +504,11 @@ async function doReserve(){
       date:state.selectedDate,
       machine:state.selectedMachine,
       hours:state.selectedHours,
-      name:name
+      name:name,
+      password:pass
     });
-    localStorage.setItem('resv_name', name);
+    localStorage.setItem('resv_name', name); // 名前だけ記憶（パスワードは保存しない）
+    $('passInput').value='';
     toast('予約しました');
     state.selectedHours=[];
     await loadDay();       // 当日枠を再取得
@@ -481,20 +520,52 @@ async function doReserve(){
   btn.disabled=false; btn.textContent='予約する';
 }
 
-/* ---- キャンセル ---- */
-async function cancelReservation(groupId){
-  const name=($('nameInput').value||'').trim();
+/* ---- キャンセル（モーダル＋パスワード） ---- */
+let cancelTargetGroup=null;
+
+function rangeForGroup(groupId){
+  const hs=state.dayReservations.filter(x=>x.groupId===groupId).map(x=>x.hour);
+  return hs.length ? rangeLabel(hs) : '';
+}
+
+function openCancelModal(groupId){
   const r=state.dayReservations.find(x=>x.groupId===groupId);
-  const when = r? hourLabel(r.hour) : '';
-  if(!confirm(`この予約（${machineLabel(state.selectedMachine)} ${when}〜）をキャンセルしますか？`)) return;
+  cancelTargetGroup=groupId;
+  $('cancelInfo').innerHTML =
+    `${escapeHtml(r?r.name:'')} さんの予約<br>`+
+    `${machineLabel(state.selectedMachine)} ／ ${rangeForGroup(groupId)}`;
+  $('cancelPass').value='';
+  $('cancelModal').classList.remove('hidden');
+  setTimeout(()=>$('cancelPass').focus(),50);
+}
+
+function closeCancelModal(){
+  $('cancelModal').classList.add('hidden');
+  cancelTargetGroup=null;
+}
+
+async function execCancel(){
+  if(!cancelTargetGroup) return;
+  const pass=($('cancelPass').value||'');
+  if(!pass){ toast('パスワードを入力してください', true); $('cancelPass').focus(); return; }
+  const btn=$('cancelModalExec');
+  btn.disabled=true; btn.textContent='処理中…';
   try{
-    await api({action:'cancel', groupId:groupId, name:name});
+    await api({action:'cancel', groupId:cancelTargetGroup, password:pass});
     toast('キャンセルしました');
+    closeCancelModal();
     await loadDay();
     await loadMonth();
   }catch(e){
     toast(e.message, true);
   }
+  btn.disabled=false; btn.textContent='キャンセルする';
+}
+
+/* HTMLエスケープ（予約者名の表示用） */
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>(
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 window.addEventListener('DOMContentLoaded', init);

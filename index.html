@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>機械予約</title>
+<style>
+  :root{
+    /* 落ち着いた実用配色 */
+    --bg:#eef1f4;
+    --panel:#ffffff;
+    --ink:#1f2733;
+    --ink-soft:#5c6b7a;
+    --line:#dde3ea;
+    --accent:#2f6f9e;        /* 選択・主要操作 */
+    --accent-soft:#e7f0f7;
+    /* 混み状況の信号色 */
+    --free:#2f9e6f;   --free-bg:#e6f6ef;    /* 〇 空いている */
+    --some:#c98a1e;   --some-bg:#fbf1dd;    /* △ やや混雑 */
+    --full:#cf5148;   --full-bg:#fae7e5;    /* ✕ 混雑 */
+    --taken:#f4d3cf;                        /* 予約済み枠 */
+    --shadow:0 1px 3px rgba(20,30,45,.08),0 6px 20px rgba(20,30,45,.06);
+    --radius:12px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.6;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 64px;}
+  header h1{font-size:20px;margin:6px 0 2px;letter-spacing:.02em;}
+  header p{margin:0 0 18px;color:var(--ink-soft);font-size:13px;}
+
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:16px;margin-bottom:16px;
+  }
+  .card h2{font-size:14px;margin:0 0 12px;color:var(--ink-soft);font-weight:600;letter-spacing:.03em;}
+
+  /* --- カレンダー --- */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .cal-head .month{font-size:16px;font-weight:600;}
+  .navbtn{
+    border:1px solid var(--line);background:#fff;border-radius:8px;
+    width:36px;height:36px;font-size:16px;cursor:pointer;color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .navbtn:active{background:var(--bg);}
+  .navbtn:disabled{opacity:.35;cursor:default;}
+  .grid7{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .dow{text-align:center;font-size:11px;color:var(--ink-soft);padding:4px 0;}
+  .dow.sun{color:var(--full);} .dow.sat{color:var(--accent);}
+  .day{
+    position:relative;border:1px solid transparent;border-radius:10px;
+    padding:6px 2px 4px;text-align:center;cursor:pointer;background:#fbfcfd;
+    min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:1px;
+  }
+  .day.empty{background:transparent;cursor:default;}
+  .day .num{font-size:13px;font-variant-numeric:tabular-nums;}
+  .day .mark{font-size:15px;font-weight:700;line-height:1;}
+  .day.past{opacity:.4;cursor:default;}
+  .day.past .mark{color:var(--ink-soft);}
+  .day.sel{border-color:var(--accent);background:var(--accent-soft);}
+  .day .mk-free{color:var(--free);} .day .mk-some{color:var(--some);} .day .mk-full{color:var(--full);}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--ink-soft);}
+  .legend span{display:inline-flex;align-items:center;gap:4px;}
+  .legend b{font-size:14px;}
+
+  /* --- 機械タブ --- */
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;}
+  .tab{
+    flex:1 1 auto;min-width:88px;border:1px solid var(--line);background:#fff;border-radius:10px;
+    padding:10px 8px;font-size:14px;cursor:pointer;color:var(--ink);text-align:center;
+  }
+  .tab.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+
+  /* --- 時間枠グリッド --- */
+  .slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  @media(max-width:480px){ .slots{grid-template-columns:repeat(3,1fr);} }
+  .slot{
+    border:1px solid var(--line);border-radius:10px;background:#fff;
+    padding:9px 4px;text-align:center;cursor:pointer;position:relative;
+    font-variant-numeric:tabular-nums;
+  }
+  .slot .t{font-size:14px;font-weight:600;}
+  .slot .s{font-size:11px;color:var(--ink-soft);margin-top:1px;}
+  .slot.free:active{background:var(--accent-soft);}
+  .slot.sel{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .slot.sel .s{color:#dbe8f2;}
+  .slot.taken{background:var(--full-bg);border-color:var(--taken);cursor:default;}
+  .slot.taken .t{color:var(--full);}
+  .slot.taken .s{color:var(--full);}
+  .slot.mine{background:var(--free-bg);border-color:#bfe6d3;cursor:pointer;}
+  .slot.mine .t{color:var(--free);}
+  .slot.disabled{opacity:.4;cursor:default;}
+
+  /* --- 予約フォーム --- */
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12px;color:var(--ink-soft);margin-bottom:5px;}
+  .field input{
+    width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;
+    background:#fff;color:var(--ink);
+  }
+  .field input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
+  .summary{font-size:14px;background:var(--bg);border-radius:10px;padding:10px 12px;margin-bottom:12px;}
+  .summary b{color:var(--accent);}
+  .btn{
+    width:100%;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;
+    background:var(--accent);color:#fff;cursor:pointer;
+  }
+  .btn:disabled{background:#a9bccb;cursor:default;}
+  .btn.ghost{background:#fff;color:var(--full);border:1px solid var(--taken);}
+
+  .hint{color:var(--ink-soft);font-size:12px;margin-top:8px;}
+  .empty-note{color:var(--ink-soft);font-size:13px;padding:8px 0;}
+
+  /* トースト */
+  #toast{
+    position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+    background:#1f2733;color:#fff;padding:11px 18px;border-radius:10px;font-size:14px;
+    opacity:0;pointer-events:none;transition:.25s;max-width:90%;text-align:center;z-index:50;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  #toast.err{background:#a23a33;}
+
+  /* ローディング */
+  .loading{color:var(--ink-soft);font-size:13px;display:flex;align-items:center;gap:8px;}
+  .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>機械予約</h1>
+    <p>日付を選び、機械と時間枠を選んで予約します（連続は最大2時間）。</p>
+  </header>
+
+  <!-- カレンダー -->
+  <section class="card">
+    <div class="cal-head">
+      <button class="navbtn" id="prevM" aria-label="前の月">‹</button>
+      <div class="month" id="monthLabel">—</div>
+      <button class="navbtn" id="nextM" aria-label="次の月">›</button>
+    </div>
+    <div class="grid7" id="dowRow"></div>
+    <div class="grid7" id="calBody" style="margin-top:4px;"></div>
+    <div id="calLoading" class="loading hidden" style="margin-top:10px;"><span class="spin"></span>混み状況を読み込み中…</div>
+    <div class="legend">
+      <span><b class="day mk-free" style="border:0;background:none;min-height:0;padding:0;">〇</b> 空きあり</span>
+      <span><b class="day mk-some" style="border:0;background:none;min-height:0;padding:0;">△</b> やや混雑</span>
+      <span><b class="day mk-full" style="border:0;background:none;min-height:0;padding:0;">✕</b> 混雑</span>
+    </div>
+  </section>
+
+  <!-- 機械選択 + 時間枠 -->
+  <section class="card" id="daySection">
+    <h2 id="daySectionTitle">日付を選んでください</h2>
+    <div class="tabs" id="machineTabs"></div>
+    <div id="slotArea" style="margin-top:14px;">
+      <div class="empty-note">日付を選ぶと空き時間枠が表示されます。</div>
+    </div>
+    <div id="slotLoading" class="loading hidden" style="margin-top:8px;"><span class="spin"></span>空き状況を確認中…</div>
+  </section>
+
+  <!-- 予約確定 -->
+  <section class="card hidden" id="reserveSection">
+    <h2>この内容で予約</h2>
+    <div class="summary" id="reserveSummary"></div>
+    <div class="field">
+      <label for="nameInput">お名前</label>
+      <input id="nameInput" type="text" placeholder="山田太郎" autocomplete="name">
+    </div>
+    <button class="btn" id="reserveBtn">予約する</button>
+    <div class="hint">※ 予約・キャンセルは名前だけで行えます。パスワードはありません。</div>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+   設定: デプロイした GAS ウェブアプリの URL をここに貼る
+   (末尾が /exec のもの)
+   ============================================================ */
+const GAS_URL = 'ここにGASウェブアプリのURL(/exec)を貼る';
+
+/* ---- API 呼び出し (全て POST + text/plain で CORS 回避) ---- */
+async function api(payload){
+  const res = await fetch(GAS_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if(!data.ok) throw new Error(data.error || '処理に失敗しました');
+  return data;
+}
+
+/* ---- 状態 ---- */
+const state = {
+  viewYear:0, viewMonth:0,      // 表示中の年月 (monthは0始まり)
+  monthCounts:{}, slotsPerDay:0,
+  machines:[], openHour:0, closeHour:24, maxHours:2,
+  selectedDate:null,            // 'YYYY-MM-DD'
+  selectedMachine:null,         // 'A'
+  dayReservations:[],           // [{hour,name,groupId}]
+  selectedHours:[]              // 選択中の枠 [9] or [9,10]
+};
+
+const DOW = ['日','月','火','水','木','金','土'];
+const $ = id => document.getElementById(id);
+
+/* ---- ユーティリティ ---- */
+function pad(n){ return (n<10?'0':'')+n; }
+function ymd(y,m,d){ return y+'-'+pad(m+1)+'-'+pad(d); }
+function todayLocal(){ const t=new Date(); return ymd(t.getFullYear(),t.getMonth(),t.getDate()); }
+function monthStr(y,m){ return y+'-'+pad(m+1); }
+function hourLabel(h){ return pad(h)+':00'; }
+function rangeLabel(hours){
+  const s=Math.min(...hours), e=Math.max(...hours)+1;
+  return pad(s)+':00〜'+pad(e)+':00';
+}
+function machineLabel(key){
+  const m=state.machines.find(x=>x.key===key); return m?m.label:key;
+}
+
+/* トースト */
+let toastTimer=null;
+function toast(msg, isErr){
+  const t=$('toast'); t.textContent=msg;
+  t.className='show'+(isErr?' err':'');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ t.className=''; }, 2600);
+}
+
+/* ============================================================
+   初期化
+   ============================================================ */
+async function init(){
+  // 曜日ヘッダ
+  $('dowRow').innerHTML = DOW.map((d,i)=>
+    `<div class="dow ${i===0?'sun':''}${i===6?'sat':''}">${d}</div>`).join('');
+
+  // 保存済みの名前
+  const saved = localStorage.getItem('resv_name');
+  if(saved) $('nameInput').value = saved;
+
+  const now=new Date();
+  state.viewYear=now.getFullYear();
+  state.viewMonth=now.getMonth();
+
+  // 設定取得 (機械名・時間帯)
+  try{
+    const cfg = await api({action:'config'});
+    state.machines=cfg.machines; state.openHour=cfg.openHour;
+    state.closeHour=cfg.closeHour; state.maxHours=cfg.maxHours;
+  }catch(e){
+    toast('サーバに接続できません。URL設定を確認してください。', true);
+    return;
+  }
+  renderMachineTabs();
+  await loadMonth();
+
+  $('prevM').onclick=()=>changeMonth(-1);
+  $('nextM').onclick=()=>changeMonth(1);
+  $('reserveBtn').onclick=doReserve;
+  // 名前を入れると自分の予約枠がキャンセル可能表示に変わる
+  $('nameInput').addEventListener('input', ()=>{
+    if(state.selectedDate && state.selectedMachine) renderSlots();
+  });
+}
+
+/* ---- 月の混み状況を読み込んで描画 ---- */
+async function loadMonth(){
+  $('monthLabel').textContent = state.viewYear+'年 '+(state.viewMonth+1)+'月';
+  $('calLoading').classList.remove('hidden');
+  try{
+    const data = await api({action:'getMonth', month:monthStr(state.viewYear,state.viewMonth)});
+    state.monthCounts=data.counts||{};
+    state.slotsPerDay=data.slotsPerDay||0;
+  }catch(e){
+    toast(e.message, true);
+  }
+  $('calLoading').classList.add('hidden');
+  renderCalendar();
+}
+
+function changeMonth(delta){
+  state.viewMonth += delta;
+  if(state.viewMonth<0){ state.viewMonth=11; state.viewYear--; }
+  if(state.viewMonth>11){ state.viewMonth=0; state.viewYear++; }
+  loadMonth();
+}
+
+/* ---- カレンダー描画 ---- */
+function markFor(dateStr){
+  // 混み具合を〇△✕で。予約率で判定。
+  const count = state.monthCounts[dateStr]||0;
+  const total = state.slotsPerDay||1;
+  const ratio = count/total;
+  if(ratio < 0.34) return {ch:'〇', cls:'mk-free'};
+  if(ratio < 0.67) return {ch:'△', cls:'mk-some'};
+  return {ch:'✕', cls:'mk-full'};
+}
+
+function renderCalendar(){
+  const y=state.viewYear, m=state.viewMonth;
+  const first=new Date(y,m,1).getDay();       // 月初の曜日
+  const days=new Date(y,m+1,0).getDate();     // 月の日数
+  const today=todayLocal();
+  let html='';
+  for(let i=0;i<first;i++) html+='<div class="day empty"></div>';
+  for(let d=1;d<=days;d++){
+    const ds=ymd(y,m,d);
+    const isPast = ds < today;
+    const isSel = ds===state.selectedDate;
+    let inner=`<span class="num">${d}</span>`;
+    if(!isPast){
+      const mk=markFor(ds);
+      inner+=`<span class="mark ${mk.cls}">${mk.ch}</span>`;
+    }else{
+      inner+=`<span class="mark" style="color:var(--line)">·</span>`;
+    }
+    html+=`<div class="day${isPast?' past':''}${isSel?' sel':''}" `+
+          `${isPast?'':`data-date="${ds}"`}>${inner}</div>`;
+  }
+  $('calBody').innerHTML=html;
+  $('calBody').querySelectorAll('.day[data-date]').forEach(el=>{
+    el.onclick=()=>selectDate(el.getAttribute('data-date'));
+  });
+}
+
+/* ---- 日付選択 ---- */
+function selectDate(ds){
+  state.selectedDate=ds;
+  state.selectedHours=[];
+  renderCalendar();
+  const [yy,mm,dd]=ds.split('-');
+  $('daySectionTitle').textContent = `${Number(mm)}月${Number(dd)}日 の空き状況`;
+  if(!state.selectedMachine) state.selectedMachine=state.machines[0].key;
+  renderMachineTabs();
+  loadDay();
+}
+
+/* ---- 機械タブ ---- */
+function renderMachineTabs(){
+  $('machineTabs').innerHTML = state.machines.map(mc=>
+    `<button class="tab${mc.key===state.selectedMachine?' sel':''}" data-mc="${mc.key}">${mc.label}</button>`
+  ).join('');
+  $('machineTabs').querySelectorAll('.tab').forEach(el=>{
+    el.onclick=()=>{
+      state.selectedMachine=el.getAttribute('data-mc');
+      state.selectedHours=[];
+      renderMachineTabs();
+      if(state.selectedDate) loadDay();
+    };
+  });
+}
+
+/* ---- 指定日・機械の予約状況を読み込む ---- */
+async function loadDay(){
+  if(!state.selectedDate || !state.selectedMachine) return;
+  $('slotLoading').classList.remove('hidden');
+  $('slotArea').innerHTML='';
+  try{
+    const data = await api({action:'getDay', date:state.selectedDate, machine:state.selectedMachine});
+    state.dayReservations=data.reservations||[];
+  }catch(e){
+    toast(e.message, true);
+    state.dayReservations=[];
+  }
+  $('slotLoading').classList.add('hidden');
+  renderSlots();
+}
+
+/* ---- 時間枠グリッド描画 ---- */
+function renderSlots(){
+  const taken={}; // hour -> {name,groupId}
+  state.dayReservations.forEach(r=>{ taken[r.hour]=r; });
+  let html='<div class="slots">';
+  for(let h=state.openHour; h<state.closeHour; h++){
+    const r=taken[h];
+    const sel = state.selectedHours.includes(h);
+    if(r){
+      // 予約済み。自分の名前と一致すればキャンセル可能な「mine」表示
+      const myName=($('nameInput').value||'').trim();
+      const mine = myName && r.name===myName;
+      html+=`<div class="slot ${mine?'mine':'taken'}" data-hour="${h}" data-group="${r.groupId}" data-mine="${mine?1:0}">`+
+            `<div class="t">${hourLabel(h)}</div>`+
+            `<div class="s">${mine?'自分の予約 ✕':'予約済'}</div></div>`;
+    }else{
+      html+=`<div class="slot free${sel?' sel':''}" data-hour="${h}">`+
+            `<div class="t">${hourLabel(h)}</div>`+
+            `<div class="s">${sel?'選択中':'空き'}</div></div>`;
+    }
+  }
+  html+='</div>';
+  html+=`<div class="hint">空き枠をタップで選択（連続${state.maxHours}枠まで）。自分の予約枠をタップするとキャンセルできます。</div>`;
+  $('slotArea').innerHTML=html;
+
+  $('slotArea').querySelectorAll('.slot.free').forEach(el=>{
+    el.onclick=()=>toggleHour(Number(el.getAttribute('data-hour')));
+  });
+  $('slotArea').querySelectorAll('.slot.mine').forEach(el=>{
+    el.onclick=()=>cancelReservation(el.getAttribute('data-group'));
+  });
+
+  updateReserveSection();
+}
+
+/* ---- 枠の選択/解除 (連続・最大maxHoursの制御) ---- */
+function toggleHour(h){
+  const cur=state.selectedHours.slice();
+  const idx=cur.indexOf(h);
+  if(idx>=0){
+    // 解除
+    cur.splice(idx,1);
+  }else{
+    if(cur.length===0){
+      cur.push(h);
+    }else if(cur.length>=state.maxHours){
+      toast(`連続予約は最大${state.maxHours}時間までです`, true);
+      return;
+    }else{
+      // 既存の選択と連続しているかチェック
+      const min=Math.min(...cur), max=Math.max(...cur);
+      if(h===min-1 || h===max+1){
+        cur.push(h);
+      }else{
+        // 連続でない → 新しく1枠だけ選び直し
+        toast('連続した枠のみ2つ選べます。選び直しました', false);
+        cur.length=0; cur.push(h);
+      }
+    }
+  }
+  state.selectedHours=cur.sort((a,b)=>a-b);
+  renderSlots();
+}
+
+/* ---- 予約確定セクションの表示更新 ---- */
+function updateReserveSection(){
+  const sec=$('reserveSection');
+  if(state.selectedHours.length===0){
+    sec.classList.add('hidden'); return;
+  }
+  sec.classList.remove('hidden');
+  const [yy,mm,dd]=state.selectedDate.split('-');
+  $('reserveSummary').innerHTML =
+    `<b>${Number(mm)}月${Number(dd)}日</b> ／ <b>${machineLabel(state.selectedMachine)}</b><br>`+
+    `<b>${rangeLabel(state.selectedHours)}</b>（${state.selectedHours.length}時間）`;
+}
+
+/* ---- 予約実行 ---- */
+async function doReserve(){
+  const name=($('nameInput').value||'').trim();
+  if(!name){ toast('お名前を入力してください', true); $('nameInput').focus(); return; }
+  if(state.selectedHours.length===0){ toast('時間枠を選んでください', true); return; }
+
+  const btn=$('reserveBtn');
+  btn.disabled=true; btn.textContent='予約中…';
+  try{
+    await api({
+      action:'reserve',
+      date:state.selectedDate,
+      machine:state.selectedMachine,
+      hours:state.selectedHours,
+      name:name
+    });
+    localStorage.setItem('resv_name', name);
+    toast('予約しました');
+    state.selectedHours=[];
+    await loadDay();       // 当日枠を再取得
+    await loadMonth();     // カレンダーの混み状況も更新
+  }catch(e){
+    toast(e.message, true);
+    await loadDay();       // 競合していた場合に最新化
+  }
+  btn.disabled=false; btn.textContent='予約する';
+}
+
+/* ---- キャンセル ---- */
+async function cancelReservation(groupId){
+  const name=($('nameInput').value||'').trim();
+  const r=state.dayReservations.find(x=>x.groupId===groupId);
+  const when = r? hourLabel(r.hour) : '';
+  if(!confirm(`この予約（${machineLabel(state.selectedMachine)} ${when}〜）をキャンセルしますか？`)) return;
+  try{
+    await api({action:'cancel', groupId:groupId, name:name});
+    toast('キャンセルしました');
+    await loadDay();
+    await loadMonth();
+  }catch(e){
+    toast(e.message, true);
+  }
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

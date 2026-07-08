@@ -61,11 +61,17 @@
   .day .mark{font-size:15px;font-weight:700;line-height:1;}
   .day.past{opacity:.4;cursor:default;}
   .day.past .mark{color:var(--ink-soft);}
+  .day.locked{opacity:.55;cursor:default;background:#f4f6f8;}
+  .day.locked .mark{color:#b7c0cb;font-size:12px;}
   .day.sel{border-color:var(--accent);background:var(--accent-soft);}
   .day .mk-free{color:var(--free);} .day .mk-some{color:var(--some);} .day .mk-full{color:var(--full);}
   .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--ink-soft);}
   .legend span{display:inline-flex;align-items:center;gap:4px;}
   .legend b{font-size:14px;}
+  .window-note{
+    font-size:12px;color:var(--accent);background:var(--accent-soft);
+    border-radius:8px;padding:7px 10px;margin-bottom:10px;text-align:center;font-weight:600;
+  }
 
   /* --- 機械タブ --- */
   .tabs{display:flex;gap:8px;flex-wrap:wrap;}
@@ -162,6 +168,7 @@
       <div class="month" id="monthLabel">—</div>
       <button class="navbtn" id="nextM" aria-label="次の月">›</button>
     </div>
+    <div id="windowNote" class="window-note hidden"></div>
     <div class="grid7" id="dowRow"></div>
     <div class="grid7" id="calBody" style="margin-top:4px;"></div>
     <div id="calLoading" class="loading hidden" style="margin-top:10px;"><span class="spin"></span>混み状況を読み込み中…</div>
@@ -169,6 +176,7 @@
       <span><b class="day mk-free" style="border:0;background:none;min-height:0;padding:0;">〇</b> 空きあり</span>
       <span><b class="day mk-some" style="border:0;background:none;min-height:0;padding:0;">△</b> やや混雑</span>
       <span><b class="day mk-full" style="border:0;background:none;min-height:0;padding:0;">✕</b> 混雑</span>
+      <span><b style="color:#b7c0cb;">🔒</b> 未解放</span>
     </div>
   </section>
 
@@ -222,7 +230,7 @@
    設定: デプロイした GAS ウェブアプリの URL をここに貼る
    (末尾が /exec のもの)
    ============================================================ */
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxZhZxKSQewKqqZvVgbDbZGaZN8P0z1nmG31sD06qqWDDTHDgiNFzdvztI-rTSqg8eY/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbysLpggqDiw-lor40jRguWufKHaYQCi2KoSAaoP4t8yc3xjtpQcoZPNAN_8wjEFbQJ6/exec';
 
 /* ---- API 呼び出し (全て POST + text/plain で CORS 回避) ---- */
 async function api(payload){
@@ -240,6 +248,7 @@ async function api(payload){
 const state = {
   viewYear:0, viewMonth:0,      // 表示中の年月 (monthは0始まり)
   monthCounts:{}, slotsPerDay:0,
+  windowStart:null, windowEnd:null, serverToday:null, // 解放ウィンドウ
   machines:[], openHour:0, closeHour:24, maxHours:2,
   selectedDate:null,            // 'YYYY-MM-DD'
   selectedMachine:null,         // 'A'
@@ -256,6 +265,7 @@ function ymd(y,m,d){ return y+'-'+pad(m+1)+'-'+pad(d); }
 function todayLocal(){ const t=new Date(); return ymd(t.getFullYear(),t.getMonth(),t.getDate()); }
 function monthStr(y,m){ return y+'-'+pad(m+1); }
 function hourLabel(h){ return pad(h)+':00'; }
+function mdLabel(ds){ const p=ds.split('-'); return Number(p[1])+'/'+Number(p[2]); }
 function rangeLabel(hours){
   const s=Math.min(...hours), e=Math.max(...hours)+1;
   return pad(s)+':00〜'+pad(e)+':00';
@@ -317,6 +327,9 @@ async function loadMonth(){
     const data = await api({action:'getMonth', month:monthStr(state.viewYear,state.viewMonth)});
     state.monthCounts=data.counts||{};
     state.slotsPerDay=data.slotsPerDay||0;
+    state.windowStart=data.windowStart||null;
+    state.windowEnd=data.windowEnd||null;
+    state.serverToday=data.today||null;
   }catch(e){
     toast(e.message, true);
   }
@@ -346,26 +359,46 @@ function renderCalendar(){
   const y=state.viewYear, m=state.viewMonth;
   const first=new Date(y,m,1).getDay();       // 月初の曜日
   const days=new Date(y,m+1,0).getDate();     // 月の日数
-  const today=todayLocal();
+  const today=state.serverToday||todayLocal();
+  const winEnd=state.windowEnd;               // これ以降は未解放
+  const winStart=state.windowStart;
+
+  // 受付期間バー
+  const note=$('windowNote');
+  if(winStart&&winEnd){
+    note.textContent=`受付中の期間：${mdLabel(winStart)} 〜 ${mdLabel(winEnd)}`;
+    note.classList.remove('hidden');
+  }else{
+    note.classList.add('hidden');
+  }
+
   let html='';
   for(let i=0;i<first;i++) html+='<div class="day empty"></div>';
   for(let d=1;d<=days;d++){
     const ds=ymd(y,m,d);
     const isPast = ds < today;
+    const isLocked = winEnd && ds > winEnd;        // まだ解放されていない先の日
     const isSel = ds===state.selectedDate;
     let inner=`<span class="num">${d}</span>`;
-    if(!isPast){
+    if(isPast){
+      inner+=`<span class="mark" style="color:var(--line)">·</span>`;
+    }else if(isLocked){
+      inner+=`<span class="mark">🔒</span>`;
+    }else{
       const mk=markFor(ds);
       inner+=`<span class="mark ${mk.cls}">${mk.ch}</span>`;
-    }else{
-      inner+=`<span class="mark" style="color:var(--line)">·</span>`;
     }
-    html+=`<div class="day${isPast?' past':''}${isSel?' sel':''}" `+
-          `${isPast?'':`data-date="${ds}"`}>${inner}</div>`;
+    const cls = isPast ? ' past' : (isLocked ? ' locked' : '');
+    const selectable = !isPast && !isLocked;
+    html+=`<div class="day${cls}${isSel?' sel':''}" `+
+          `${selectable?`data-date="${ds}"`:`data-locked="${isLocked?1:0}"`}>${inner}</div>`;
   }
   $('calBody').innerHTML=html;
   $('calBody').querySelectorAll('.day[data-date]').forEach(el=>{
     el.onclick=()=>selectDate(el.getAttribute('data-date'));
+  });
+  $('calBody').querySelectorAll('.day[data-locked="1"]').forEach(el=>{
+    el.onclick=()=>toast('この期間はまだ予約受付が始まっていません');
   });
 }
 

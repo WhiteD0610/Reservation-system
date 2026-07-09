@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>予約状況ボード</title>
+<style>
+  :root{
+    --bg:#0e1520;
+    --panel:#18222f;
+    --line:#26333f;
+    --text:#f2f6fa;
+    --muted:#8ea0b2;
+    --none:#5b6b7b;
+    /* 機械ごとのアクセント色 */
+    --c0:#38bd9c;   /* A */
+    --c1:#e0a63b;   /* B */
+    --c2:#8f7ff0;   /* C */
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    overflow:hidden;
+  }
+  #app{height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.2vw;}
+
+  /* 上部バー */
+  .topbar{
+    display:flex;align-items:baseline;justify-content:space-between;gap:2vw;
+    padding-bottom:1.6vh;border-bottom:1px solid var(--line);flex:0 0 auto;
+  }
+  .date{font-size:3.4vh;font-weight:600;color:var(--text);}
+  .slot{font-size:3.4vh;font-weight:700;color:#ffd27a;font-variant-numeric:tabular-nums;}
+  .clock{font-size:4.4vh;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em;}
+
+  /* ボード（3カラム） */
+  .board{flex:1 1 auto;display:flex;gap:1.6vw;padding:1.6vh 0;min-height:0;}
+  .col{
+    flex:1 1 0;background:var(--panel);border-radius:2vh;
+    display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+    padding:2.4vh 1.4vw;position:relative;overflow:hidden;border-top:0.9vh solid var(--accent);
+  }
+  .col.c0{--accent:var(--c0);}
+  .col.c1{--accent:var(--c1);}
+  .col.c2{--accent:var(--c2);}
+  .mlabel{
+    font-size:3.2vh;font-weight:700;color:var(--accent);
+    display:flex;align-items:center;gap:.5vw;
+  }
+  .mlabel .dot{width:1.4vh;height:1.4vh;border-radius:50%;background:var(--accent);display:inline-block;}
+
+  .current{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:100%;}
+  .cname{
+    font-size:8.5vh;font-weight:800;line-height:1.05;text-align:center;
+    max-width:100%;word-break:break-word;
+  }
+  .cname.none{font-size:5.5vh;color:var(--none);font-weight:700;}
+
+  .next{
+    width:100%;text-align:center;font-size:2.6vh;color:var(--muted);
+    border-top:1px solid var(--line);padding-top:1.4vh;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .next .nt{color:#cdd8e2;font-variant-numeric:tabular-nums;}
+  .next .nn{color:var(--text);font-weight:600;}
+  .next .nn.none{color:var(--none);font-weight:500;}
+
+  /* フッター */
+  .footer{
+    flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+    font-size:2vh;color:var(--muted);padding-top:0.6vh;
+  }
+  .status{display:flex;align-items:center;gap:1vw;}
+  .live{width:1.3vh;height:1.3vh;border-radius:50%;background:#3ad07a;box-shadow:0 0 0 0 rgba(58,208,122,.6);animation:pulse 2s infinite;}
+  .live.err{background:#e05b5b;animation:none;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(58,208,122,.5);}70%{box-shadow:0 0 0 1.2vh rgba(58,208,122,0);}100%{box-shadow:0 0 0 0 rgba(58,208,122,0);}}
+  .fsbtn{
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+    border-radius:1vh;padding:0.8vh 1.6vw;font-size:2vh;cursor:pointer;
+  }
+  .fsbtn:active{background:var(--panel);}
+
+  /* 縦向きのときは縦積み */
+  @media (orientation:portrait){
+    .board{flex-direction:column;}
+    .col{flex-direction:row;justify-content:space-between;padding:2vh 4vw;border-top:0;border-left:0.9vh solid var(--accent);}
+    .current{justify-content:flex-start;flex:1 1 auto;padding-left:4vw;}
+    .cname{font-size:6vh;text-align:left;}
+    .cname.none{font-size:4vh;}
+    .next{width:auto;border-top:0;border-left:1px solid var(--line);padding-top:0;padding-left:3vw;text-align:right;}
+    .mlabel{min-width:22vw;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="date" id="dateLabel">—</div>
+    <div class="slot" id="slotLabel">—</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+  <div class="board" id="board"></div>
+  <div class="footer">
+    <div class="status"><span class="live" id="live"></span><span id="statusText">読み込み中…</span></div>
+    <button class="fsbtn" id="fsBtn">全画面 / スリープ防止</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   設定: 予約システムと同じ GAS ウェブアプリの URL(/exec) を貼る
+   ============================================================ */
+const GAS_URL = 'ここにGASウェブアプリのURL(/exec)を貼る';
+
+const DOW = ['日','月','火','水','木','金','土'];
+const $ = id => document.getElementById(id);
+function pad(n){ return (n<10?'0':'')+n; }
+function hourLabel(h){ return pad(((h%24)+24)%24)+':00'; }
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>(
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function apiNow(){
+  const res = await fetch(GAS_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({action:'now'})
+  });
+  const data = await res.json();
+  if(!data.ok) throw new Error(data.error||'取得に失敗しました');
+  return data;
+}
+
+let lastData = null;
+
+/* データ取得して描画 */
+async function fetchNow(){
+  try{
+    const d = await apiNow();
+    lastData = d;
+    render(d);
+    setStatus(true);
+  }catch(e){
+    setStatus(false, e.message);
+  }
+}
+
+function render(d){
+  // 日付ラベル
+  const [y,m,dd] = d.date.split('-').map(Number);
+  const dow = DOW[new Date(y, m-1, dd).getDay()];
+  $('dateLabel').textContent = `${m}月${dd}日(${dow})`;
+  // 対象時間帯
+  $('slotLabel').textContent = `${hourLabel(d.hour)} 〜 ${hourLabel(d.hour+1)}`;
+
+  // カラム
+  let html='';
+  d.machines.forEach((mc, i)=>{
+    const cur = mc.current && mc.current.name ? escapeHtml(mc.current.name) : null;
+    const nxt = mc.next && mc.next.name ? escapeHtml(mc.next.name) : null;
+    html += `<div class="col c${i%3}">`
+          +   `<div class="mlabel"><span class="dot"></span>${escapeHtml(mc.label)}</div>`
+          +   `<div class="current">`
+          +     (cur ? `<span class="cname">${cur}</span>`
+                     : `<span class="cname none">予約なし</span>`)
+          +   `</div>`
+          +   `<div class="next">`
+          +     `<span class="nt">次 ${hourLabel(d.nextHour)}〜</span>　`
+          +     (nxt ? `<span class="nn">${nxt}</span>`
+                     : `<span class="nn none">予約なし</span>`)
+          +   `</div>`
+          + `</div>`;
+  });
+  $('board').innerHTML = html;
+}
+
+function setStatus(ok, msg){
+  const live=$('live'), t=$('statusText');
+  if(ok){
+    live.classList.remove('err');
+    t.textContent = '自動更新中';
+  }else{
+    live.classList.add('err');
+    t.textContent = '接続エラー・再試行中' + (msg? '（'+msg+'）' : '');
+  }
+}
+
+/* 時計（端末時刻）と正時での自動切り替え */
+let lastMinute = -1;
+function tick(){
+  const now = new Date();
+  $('clock').textContent = pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+  const mm = now.getMinutes();
+  // 分が 00 になった瞬間（＝1時間の切り替わり）に即更新
+  if(mm === 0 && lastMinute !== 0){
+    fetchNow();
+  }
+  lastMinute = mm;
+}
+
+/* 全画面＋スリープ防止 */
+let wakeLock = null;
+async function requestWakeLock(){
+  try{
+    if('wakeLock' in navigator){
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', ()=>{ wakeLock=null; });
+    }
+  }catch(e){/* 非対応でも無視 */}
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && wakeLock === null) requestWakeLock();
+});
+$('fsBtn').onclick = async ()=>{
+  try{ if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); }catch(e){}
+  requestWakeLock();
+};
+
+/* 起動 */
+fetchNow();
+setInterval(tick, 1000);        // 時計＆正時検出
+setInterval(fetchNow, 30000);   // 30秒ごとに最新化（他者の予約/キャンセル反映）
+</script>
+</body>
+</html>

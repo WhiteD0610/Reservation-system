@@ -165,8 +165,17 @@
 <div class="wrap">
   <header>
     <h1>機械予約</h1>
-    <p>日付を選び、機械と時間枠を選んで予約します（連続は最大2時間）。</p>
+    <p>お名前を入れて、日付・機械・時間枠を選んで予約します（連続は最大2時間）。</p>
   </header>
+
+  <!-- お名前（常設） -->
+  <section class="card" id="userCard">
+    <div class="field" style="margin-bottom:8px;">
+      <label for="nameInput">お名前</label>
+      <input id="nameInput" type="text" placeholder="山田太郎" autocomplete="name">
+    </div>
+    <div id="quotaNote" class="quota-note hidden" style="margin:0;"></div>
+  </section>
 
   <!-- カレンダー -->
   <section class="card">
@@ -202,16 +211,11 @@
     <h2>この内容で予約</h2>
     <div class="summary" id="reserveSummary"></div>
     <div class="field">
-      <label for="nameInput">お名前</label>
-      <input id="nameInput" type="text" placeholder="山田太郎" autocomplete="name">
-    </div>
-    <div id="quotaNote" class="quota-note hidden"></div>
-    <div class="field">
       <label for="passInput">キャンセル用パスワード</label>
       <input id="passInput" type="password" placeholder="キャンセル時に使う合言葉" autocomplete="off">
     </div>
     <button class="btn" id="reserveBtn">予約する</button>
-    <div class="hint">※ キャンセルは予約枠をもう一度タップし、このパスワードを入力します。忘れないもの、かつ大事なパスワードの使い回しは避けてください。</div>
+    <div class="hint">※ お名前は上のカードで入力します。キャンセルは予約枠をもう一度タップし、このパスワードを入力します。大事なパスワードの使い回しは避けてください。</div>
   </section>
 </div>
 

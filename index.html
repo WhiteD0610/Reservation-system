@@ -242,7 +242,7 @@
    設定: デプロイした GAS ウェブアプリの URL をここに貼る
    (末尾が /exec のもの)
    ============================================================ */
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbyHz_KcSoG2TFPOuOv2k7_oYo9K2FzcoYgbFJUN4i6znIdVkmaoO9rB1s4APl72ycMM/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxzJXpJbIjEPNMaZdkh76_6GeSMDYXA8K2Ew7hAE6IVHJEPh-vOPgN2XHNbMWFCZVk/exec';
 
 /* ---- API 呼び出し (全て POST + text/plain で CORS 回避) ---- */
 async function api(payload){
@@ -278,6 +278,7 @@ function todayLocal(){ const t=new Date(); return ymd(t.getFullYear(),t.getMonth
 function monthStr(y,m){ return y+'-'+pad(m+1); }
 function hourLabel(h){ return pad(h)+':00'; }
 function mdLabel(ds){ const p=ds.split('-'); return Number(p[1])+'/'+Number(p[2]); }
+function slotStartMs(ds, h){ const p=ds.split('-'); return new Date(Number(p[0]),Number(p[1])-1,Number(p[2]),h,0,0).getTime(); }
 function rangeLabel(hours){
   const s=Math.min(...hours), e=Math.max(...hours)+1;
   return pad(s)+':00〜'+pad(e)+':00';
@@ -463,16 +464,29 @@ async function loadDay(){
 function renderSlots(){
   const taken={}; // hour -> {name,groupId}
   state.dayReservations.forEach(r=>{ taken[r.hour]=r; });
+  const today = state.serverToday || todayLocal();
+  const isToday = state.selectedDate === today;
+  const nowMs = Date.now();
+  // 時間経過で開始時刻が過ぎた選択枠は自動的に外す
+  if(isToday){
+    state.selectedHours = state.selectedHours.filter(h => slotStartMs(state.selectedDate, h) > nowMs);
+  }
   let html='<div class="slots">';
   for(let h=state.openHour; h<state.closeHour; h++){
     const r=taken[h];
     const sel = state.selectedHours.includes(h);
+    // 今日で、開始時刻を過ぎた枠（進行中含む）は予約不可
+    const isPastSlot = isToday && slotStartMs(state.selectedDate, h) <= nowMs;
     if(r){
       // 予約済み。予約者名を表示。タップでキャンセル（パスワード確認）。
       html+=`<div class="slot taken" data-hour="${h}" data-group="${r.groupId}">`+
             `<div class="t">${hourLabel(h)}</div>`+
             `<div class="s">予約済</div>`+
             `<div class="who">${escapeHtml(r.name||'')}</div></div>`;
+    }else if(isPastSlot){
+      html+=`<div class="slot disabled" data-hour="${h}">`+
+            `<div class="t">${hourLabel(h)}</div>`+
+            `<div class="s">終了</div></div>`;
     }else{
       html+=`<div class="slot free${sel?' sel':''}" data-hour="${h}">`+
             `<div class="t">${hourLabel(h)}</div>`+
